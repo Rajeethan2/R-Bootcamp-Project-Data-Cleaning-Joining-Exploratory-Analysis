@@ -9,7 +9,7 @@ output:
     toc_depth: 3
     toc_float: true
     number_sections: true
-    code_folding: none
+    code_folding: hide
     theme: flatly
   pdf_document:
     toc: true
@@ -20,7 +20,7 @@ output:
 ```{r knitr-setup, include=FALSE}
 # Set global chunk options
 knitr::opts_chunk$set(
-  echo = FALSE,          # Hide code by default in knitted output
+  echo = TRUE,           # Show code by default (use code_folding in YAML)
   message = FALSE,       # Suppress messages
   warning = FALSE,       # Suppress warnings
   fig.width = 12,        # Default figure width
@@ -112,7 +112,7 @@ This methodology ensures comparability across size buckets, cantons, and sectors
 
 In this section, we load all R packages necessary for data manipulation, visualization, statistical modeling, and geospatial analysis.
 
-```{r packages, echo=FALSE, message=FALSE, warning=FALSE}
+```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
 # Install missing dependencies if needed
 if (!require("parallelly", quietly = TRUE)) install.packages("parallelly", repos = "https://cloud.r-project.org", type = "binary")
 if (!require("lava", quietly = TRUE)) install.packages("lava", repos = "https://cloud.r-project.org", type = "binary")
@@ -193,7 +193,7 @@ Dataset A contains comprehensive company-level metadata for all 188 SPI (Swiss P
 
 ### Loading and Initial Inspection
 
-```{r load-dataset-a, echo=FALSE}
+```{r load-dataset-a, echo=TRUE}
 # Load the company master dataset
 # Using read_delim for semicolon-delimited CSV with UTF-8 encoding
 company_master <- read_delim(
@@ -203,9 +203,18 @@ company_master <- read_delim(
   show_col_types = FALSE              # Suppress column type messages
 )
 
-# Keep data-loading chunk silent in knitted output.
-# The key facts are communicated in the narrative text below.
-invisible(company_master)
+# Display basic information about the dataset
+cat("=== COMPANY MASTER DATASET STRUCTURE ===\n")
+cat("Number of companies:", nrow(company_master), "\n")
+cat("Number of variables:", ncol(company_master), "\n\n")
+
+# Show column names and types
+cat("Column names:\n")
+print(names(company_master))
+
+# Display first few rows
+cat("\n=== FIRST 5 COMPANIES ===\n")
+print(head(company_master, 5))
 ```
 
 **Interpretation:** The dataset contains 188 Swiss companies with 13 variables each. The presence of both ticker symbols and ISIN codes provides multiple ways to link this data with external sources.
@@ -213,7 +222,7 @@ invisible(company_master)
 
 ### Variable Descriptions
 
-```{r dataset-a-variables, echo=FALSE}
+```{r dataset-a-variables, echo=TRUE}
 # Create a data dictionary table
 data_dictionary <- tribble(
   ~Variable, ~Type, ~Description,
@@ -246,28 +255,40 @@ kable(data_dictionary,
 
 ### Data Quality Assessment
 
-```{r dataset-a-quality, echo=FALSE, fig.width=14, fig.height=8, fig.cap="Figure 1: Data Quality Assessment for Dataset A"}
+```{r dataset-a-quality, echo=TRUE, fig.width=14, fig.height=8, fig.cap="Figure 1: Data Quality Assessment for Dataset A"}
 # Check for missing values
 missing_summary <- company_master %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
   pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Count") %>%
   mutate(Missing_Percentage = (Missing_Count / nrow(company_master)) * 100)
 
+cat("=== MISSING VALUES SUMMARY ===\n")
+print(missing_summary)
+
 # Sector distribution
 sector_dist <- company_master %>%
   count(Sector, name = "Count") %>%
   arrange(desc(Count))
+
+cat("\n=== SECTOR DISTRIBUTION ===\n")
+print(sector_dist)
 
 # Size distribution
 size_dist <- company_master %>%
   count(Size, name = "Count") %>%
   arrange(desc(Count))
 
+cat("\n=== SIZE DISTRIBUTION ===\n")
+print(size_dist)
+
 # Canton distribution (top 10)
 canton_dist <- company_master %>%
   count(Canton, name = "Count") %>%
   arrange(desc(Count)) %>%
   head(10)
+
+cat("\n=== TOP 10 CANTONS BY COMPANY COUNT ===\n")
+print(canton_dist)
 
 # Create visualization: Sector and Size distribution
 p1 <- ggplot(company_master, aes(x = reorder(Sector, Sector, function(x) length(x)))) +
@@ -279,35 +300,16 @@ p1 <- ggplot(company_master, aes(x = reorder(Sector, Sector, function(x) length(
        y = "Number of Companies") +
   theme(plot.title = element_text(face = "bold"))
 
-# Build an informative size table with shares and a diversification benchmark
-size_dist <- company_master %>%
-  count(Size, name = "Count") %>%
-  mutate(
-    share_pct = (Count / sum(Count)) * 100,
-    Size = factor(Size, levels = c("Large", "Mid", "Small"))
-  )
-
-p2 <- ggplot(size_dist, aes(x = Size, y = share_pct, fill = Size)) +
-  geom_col(alpha = 0.85, width = 0.7) +
-  geom_hline(yintercept = 33.3, linetype = "dashed", color = "gray50") +
-  geom_text(
-    aes(label = paste0(Count, " firms (", round(share_pct, 1), "%)")),
-    vjust = -0.35,
-    size = 3.6
-  ) +
+p2 <- ggplot(company_master, aes(x = Size, fill = Size)) +
+  geom_bar(alpha = 0.8) +
   scale_fill_manual(values = c("Large" = "#d7191c", "Mid" = "#fdae61", "Small" = "#2c7bb6")) +
-  scale_y_continuous(labels = scales::label_percent(scale = 1), limits = c(0, 95)) +
   theme_minimal(base_size = 11) +
-  labs(
-    title = "B) Size Mix: Share of Index Constituents",
-    subtitle = "Dashed line = equal-share benchmark (33.3%)",
-    x = "Size bucket",
-    y = "Share of companies"
-  ) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    legend.position = "none"
-  )
+  labs(title = "B) Company Count by Size Bucket",
+       x = "Size Category",
+       y = "Number of Companies") +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none") +
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, size = 4)
 
 p3 <- ggplot(canton_dist, aes(x = reorder(Canton, Count), y = Count)) +
   geom_col(fill = "#7fcdbb", alpha = 0.8) +
@@ -335,7 +337,7 @@ p3 <- ggplot(canton_dist, aes(x = reorder(Canton, Count), y = Count)) +
 
 - **Sector concentration**: Industrial Goods dominates with 95 companies (50.5%), followed by Health Care and Banks. This reflects Switzerland's traditional strengths in manufacturing and pharmaceuticals.
 
-- **Size verdict for analysis design**: The size mix is highly imbalanced (small-cap dominant). This means any unconditional “size premium” can be driven by composition and sample-volume effects, so we treat hypothesis tests and confidence intervals as mandatory before drawing investment conclusions.
+- **Size skewness**: The dataset is heavily skewed toward small-cap firms (159 companies, 84.6%), with only 13 large-cap and 16 mid-cap companies. This distribution is typical of broader market indices.
 
 - **Geographic concentration**: Zürich leads with 49 companies (26.1%), followed by Zug and other financial centers. This concentration has implications for portfolio diversification strategies.
 
@@ -360,7 +362,10 @@ The price data pipeline includes:
 - **Risk metrics**: Volatility (annualized), maximum drawdown, and risk-adjusted ratios
 - **Equal-weight indices**: Portfolio-level returns by size, sector, and canton
 
-```{r setup-ds-B, include=FALSE, message=FALSE, warning=FALSE}
+    <button type="button" class="collapsible">TEXT in the GRAY BAR</button>
+      <div class="content">
+
+```{r setup-ds-B, message=FALSE, warining=FALSE}
 
 ################################################################################
 # PARAMETERS
@@ -396,7 +401,7 @@ PARAMS <- list(
 dir.create(PARAMS$output_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
-```{r functions, include=FALSE, message=FALSE, warning=FALSE}
+```{r functions, message=FALSE, warning=FALSE}
 ################################################################################
 # FUNCTION: Load and clean master data from semicolon CSV
 ################################################################################
@@ -1111,7 +1116,7 @@ create_daily_joined <- function(daily_features, master_data) {
 }
 ```
 
-```{r run-pipeline, include=FALSE}
+```{r run-pipeline}
 ################################################################################
 # MAIN PIPELINE EXECUTION
 ################################################################################
@@ -1333,13 +1338,14 @@ cat("Firms with n_obs_3y >= 200 (recommended for stable vol):",
 ```
 
      </p>
+    </div>
 
 
 ## Data Cleaning and Preparation
 
 ### Data Cleaning Steps
 
-```{r data-cleaning, include=FALSE, results="hide"}
+```{r data-cleaning, echo=TRUE}
 # ============================================================================
 # STEP 1: STANDARDIZE COLUMN NAMES
 # ============================================================================
@@ -1521,7 +1527,7 @@ These steps are essential for reliable analysis and prevent common data quality 
 
 ### Feature Engineering
 
-```{r feature-engineering, include=FALSE, results="hide"}
+```{r feature-engineering, echo=TRUE}
 # ============================================================================
 # STEP 1: GEOGRAPHIC FEATURES
 # ============================================================================
@@ -1794,7 +1800,7 @@ These features will be crucial for testing hypotheses about size premiums, geogr
 
 ### Data Validation
 
-```{r data-validation, echo=FALSE, results="hide", fig.width=14, fig.height=6, fig.cap="Figure 2: Data Validation - Geographic Coverage"}
+```{r data-validation, echo=TRUE, fig.width=14, fig.height=6, fig.cap="Figure 2: Data Validation - Geographic Coverage"}
 # ============================================================================
 # VALIDATION CHECK 1: GEOGRAPHIC COVERAGE
 # ============================================================================
@@ -1904,7 +1910,7 @@ In this section, we examine how Swiss companies are distributed across geographi
 
 ####
 
-```{r descriptive-table-1, echo=FALSE}
+```{r descriptive-table-1, echo=TRUE}
 # ============================================================================
 # TABLE 1: COMPANY DISTRIBUTION BY CANTON
 # ============================================================================
@@ -1936,7 +1942,7 @@ tbl_canton
 
 ####
 
-```{r treemap-1, echo=FALSE}
+```{r treemap-1, echo=TRUE}
 # ============================================================================
 # TREEMAP
 # ============================================================================
@@ -1981,7 +1987,7 @@ The canton-level distribution reveals significant geographic concentration:
 
 ####
 
-```{r descriptive-table-2, echo=FALSE, warning=FALSE}
+```{r descriptive-table-2, echo=TRUE, warning=FALSE}
 # ============================================================================
 # TABLE 2: COMPANY DISTRIBUTION BY SECTOR
 # ============================================================================
@@ -2030,7 +2036,7 @@ tbl_sector
 
 ####
 
-```{r pareto-1, echo=FALSE, warning=FALSE}
+```{r pareto-1, echo=TRUE, warning=FALSE}
 # ============================================================================
 # PARETO CHART
 # ============================================================================
@@ -2107,7 +2113,7 @@ This sectoral concentration has implications for sector-based diversification st
 
 ####
 
-```{r descriptive-table-3, echo=FALSE}
+```{r descriptive-table-3, echo=TRUE}
 # ============================================================================
 # TABLE 3: COMPANY DISTRIBUTION BY SIZE BUCKET
 # ============================================================================
@@ -2137,7 +2143,7 @@ tbl_size
 
 ####
 
-```{r radar-3, echo=FALSE}
+```{r radar-3, echo=TRUE}
 # ============================================================================
 # TABLE 3: COMPANY DISTRIBUTION BY SIZE BUCKET
 # ============================================================================
@@ -2234,7 +2240,7 @@ This distribution motivates the **H1 hypothesis test** about whether small-caps 
 
 This operationalization matters because: a portfolio spread across 5 different cantons may still have 80% exposure to one sector if those cantons are sector-concentrated.
 
-```{r concentration-analysis, echo=FALSE, results="hide", fig.width=14, fig.height=8, fig.cap="Figure 4: Concentration Risk Assessment"}
+```{r concentration-analysis, echo=TRUE, fig.width=14, fig.height=8, fig.cap="Figure 4: Concentration Risk Assessment"}
 # ============================================================================
 # HERFINDAHL-HIRSCHMAN INDEX (HHI) CALCULATION
 # ============================================================================
@@ -2331,7 +2337,7 @@ This analysis directly relates to **H3 (Concentration Risk Hypothesis)**: Canton
 
 *(Note: This section requires Dataset B - monthly returns panel. The following code assumes you have run the data pipeline and generated `spi_monthly_panel_analysis.csv`)*
 
-```{r load-returns-data, echo=FALSE, eval=FALSE}
+```{r load-returns-data, echo=TRUE, eval=FALSE}
 # ============================================================================
 # LOAD MONTHLY RETURNS PANEL
 # ============================================================================
@@ -2352,7 +2358,7 @@ cat("Unique companies:", n_distinct(monthly_returns$symbol), "\n")
 cat("Date range:", min(monthly_returns$month), "to", max(monthly_returns$month), "\n")
 ```
 
-```{r returns-descriptive-stats, echo=FALSE, eval=FALSE}
+```{r returns-descriptive-stats, echo=TRUE, eval=FALSE}
 # ============================================================================
 # DESCRIPTIVE STATISTICS TABLE: RETURNS BY SIZE (WITH SHARPE RATIO)
 # ============================================================================
@@ -2413,7 +2419,7 @@ Key metrics to evaluate:
 
 ## Return Distribution Visualizations
 
-```{r returns-distributions, echo=FALSE, eval=FALSE, fig.width=16, fig.height=10, fig.cap="Figure 5: Return Distribution Comparison by Size Bucket"}
+```{r returns-distributions, echo=TRUE, eval=FALSE, fig.width=16, fig.height=10, fig.cap="Figure 5: Return Distribution Comparison by Size Bucket"}
 # ============================================================================
 # MULTI-PANEL RETURN DISTRIBUTION VISUALIZATION
 # ============================================================================
@@ -2520,7 +2526,7 @@ If H1 is true (small-caps have higher returns), we expect:
 
 ## Performance Over Time
 
-```{r performance-dynamics, echo=FALSE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure 6: Performance Dynamics by Size Bucket"}
+```{r performance-dynamics, echo=TRUE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure 6: Performance Dynamics by Size Bucket"}
 # ============================================================================
 # CUMULATIVE PERFORMANCE AND ROLLING VOLATILITY
 # ============================================================================
@@ -2604,7 +2610,7 @@ If H1 is true, we expect:
 
 *This area chart provides an alternative view of portfolio growth, showing the relative magnitude of cumulative returns across size buckets.*
 
-```{r area-chart-cumulative, echo=FALSE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure: Cumulative Returns by Size Bucket (Area Chart)"}
+```{r area-chart-cumulative, echo=TRUE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure: Cumulative Returns by Size Bucket (Area Chart)"}
 # ============================================================================
 # AREA CHART: CUMULATIVE RETURNS BY SIZE BUCKET
 # ============================================================================
@@ -2663,7 +2669,7 @@ The area chart provides a visually intuitive way to compare portfolio growth:
 
 *(Note: This section uses the geospatial code from your original report. I'm including it with enhanced interpretations.)*
 
-```{r prepare-map1-data, include=FALSE, message=FALSE, warning=FALSE, results="hide"}
+```{r prepare-map1-data, message=FALSE, warning=FALSE, echo=TRUE}
 # ============================================================================
 # PREPARE GEOSPATIAL DATA FOR MAPPING
 # ============================================================================
@@ -2858,7 +2864,7 @@ This map provides visual evidence for **H3 (Concentration Risk)**: Geographic sp
 
 *(Note: This map shows which sector has the highest cumulative trading volume in each canton)*
 
-```{r prepare-map2-data, include=FALSE, results="hide"}
+```{r prepare-map2-data, echo=TRUE}
 # ============================================================================
 # PREPARE DATA FOR REPRESENTATION OF SECTOR VOLUME BY CANTON
 # ============================================================================
@@ -3010,7 +3016,7 @@ This map provides additional evidence for **H2 and H3**: Canton characteristics 
 
 *This heatmap provides a matrix view of mean returns across canton-sector combinations, highlighting interaction effects that may not be visible in univariate analyses.*
 
-```{r heatmap-canton-sector, echo=FALSE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure: Canton x Sector Mean Returns Heatmap"}
+```{r heatmap-canton-sector, echo=TRUE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure: Canton x Sector Mean Returns Heatmap"}
 # ============================================================================
 # HEATMAP: CANTON × SECTOR MEAN RETURNS
 # ============================================================================
@@ -3069,24 +3075,24 @@ Key insights for H3 (Concentration Risk):
 
 # Statistical Modeling and Hypothesis Testing
 
-In this chapter, we test each client hypothesis with one clear statistical step and one supporting visualization. We use Wilcoxon tests for group comparisons (robust to non-normal returns) and a linear regression model to control for sector and size composition when evaluating location effects.
+In this chapter we will conduct two **Wilcoxon tests** for median comparison and to either accept or reject the client's hypotheses. Furthermore, we will apply a **linear regression** model for identifying drivers.
 
-## Hypothesis 1: Small-Cap vs Large-Cap Returns
+## wilcoxon-test~1~: Mean Return Comparison
 
-We test whether small-cap firms outperform large-cap firms in monthly returns:
+We perform a wilcoxon-test comparing:
 
-- **H~0~**: The return distributions of Small and Large firms are equal.
+- **H~0~**: $\mu_S = \mu_L$ Mean return (Small) *is equal to* Mean return (Large)
 
-- **H~A~**: Small-cap monthly returns are higher than large-cap monthly returns.
+- **H~A~**: $\mu_S > \mu_L$ Mean return (Small) *is significantly greater than* Mean return (Large)
 
-We report p-value, effect size (Cohen's d), and a practical interpretation for investors.
+Report effect size (Cohen's d), p-value, and 95% confidence intervals.
 
-This is a **two-sample, one-sided, unpaired Wilcoxon test** because:
+This is a **two-sample, one-sided, unpaired wilcoxon-test** because:
 - Two independent groups (Small vs Large)
 - Testing for a directional difference (Small > Large)
 - Different companies in each group (unpaired)
 
-```{r wilcoxon-test-size-premium, echo=FALSE, eval=FALSE}
+```{r wilcoxon-test-size-premium, echo=TRUE, eval=FALSE}
 # ============================================================================
 # WILCOXON-TEST 1: SMALL-CAP VS LARGE-CAP RETURNS
 # ============================================================================
@@ -3100,7 +3106,7 @@ large_returns <- monthly_returns %>%
   filter(size_bucket == "Large", !is.na(ret_monthly)) %>%
   pull(ret_monthly)
 
-# Perform Wilcoxon rank-sum test
+# Perform t-test
 w_test_size <- wilcox.test(small_returns, large_returns, 
                      alternative = "greater", paired = FALSE)
 
@@ -3151,92 +3157,95 @@ if (w_test_size$p.value < 0.05) {
 }
 ```
 
-**Interpretation:**
+**Interpretation:** *(To be completed with actual data)*
 
-- If the p-value is below 0.05, we reject H0 and conclude that small-cap returns are statistically higher in this sample.
-- Cohen's d tells us whether the difference is economically meaningful, not only statistically detectable.
-- For portfolio decisions, the key question is whether the return advantage remains attractive after accounting for volatility and drawdowns.
+Key points to interpret:
+1. **Statistical significance (p-value)**: If p < 0.05, we have strong evidence that returns differ
+2. **Economic significance (difference)**: Even if statistically significant, is the difference large enough to matter? A 0.1% monthly difference = 1.2% annually
+3. **Effect size (Cohen's d)**: Standardized measure of difference magnitude:
+   - d < 0.2: Negligible difference
+   - 0.2 ≤ d < 0.5: Small difference
+   - 0.5 ≤ d < 0.8: Medium difference
+   - d ≥ 0.8: Large difference
+4. **Confidence interval**: Range of plausible values for true difference. If includes 0, effect is uncertain.
 
 ### Visualization: Mean Comparison with Confidence Intervals
 
-```{r wilcoxon-test-1-viz, echo=FALSE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure 9: Size Premium Hypothesis Test - Distribution and uncertainty"}
+```{r wilcoxon-test-1-viz, echo=TRUE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure 9: Size Premium Hypothesis Test - Visual Comparison"}
 # ============================================================================
-# VISUALIZATION FOR HYPOTHESIS 1
+# VISUALIZATION FOR WILCOXON-TEST 1
 # ============================================================================
 
-# Prepare data for clear group comparison
-size_plot_data <- monthly_returns %>%
+# Calculate means and confidence intervals
+size_means <- monthly_returns %>%
   filter(size_bucket %in% c("Small", "Large"), !is.na(ret_monthly)) %>%
-  mutate(size_bucket = factor(size_bucket, levels = c("Large", "Small")))
-
-# Compute sample size and central tendency for labels
-size_summary <- size_plot_data %>%
   group_by(size_bucket) %>%
   summarise(
-    n_obs = n(),
-    median_return = median(ret_monthly, na.rm = TRUE),
+    n = n(),
+    mean = mean(ret_monthly),
+    sd = sd(ret_monthly),
+    se = sd / sqrt(n),
+    ci_lower = mean - 1.96 * se,
+    ci_upper = mean + 1.96 * se,
     .groups = "drop"
   )
 
-# Informative boxplot with overlaid jittered observations
-p_size_dist <- ggplot(size_plot_data, aes(x = size_bucket, y = ret_monthly, fill = size_bucket)) +
-  geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.65) +
-  geom_jitter(width = 0.16, alpha = 0.12, size = 1.1, color = "gray30") +
-  geom_point(
-    data = size_summary,
-    aes(x = size_bucket, y = median_return),
-    inherit.aes = FALSE,
-    size = 3,
-    shape = 23,
-    fill = "white",
-    color = "black"
-  ) +
+# Panel A: Mean ± CI plot
+p_means <- ggplot(size_means, aes(x = size_bucket, y = mean, color = size_bucket)) +
+  geom_point(size = 6) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2, linewidth = 1.2) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_fill_manual(values = c("Large" = "#377eb8", "Small" = "#e41a1c")) +
+  scale_color_manual(values = c("Large" = "#d7191c", "Small" = "#2c7bb6")) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(
-    title = "Small vs Large: full return distributions, not only means",
-    subtitle = "White diamonds mark group medians; points show monthly observations",
-    x = NULL,
-    y = "Monthly return"
-  ) +
   theme_minimal(base_size = 12) +
-  theme(legend.position = "none")
+  labs(title = "A) Mean Returns with 95% Confidence Intervals",
+       subtitle = "Error bars show uncertainty in mean estimates",
+       x = "Size Bucket", y = "Mean Monthly Return") +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none",
+        panel.grid.major.x = element_blank())
 
-# Compact CI panel for direct uncertainty comparison
-size_ci <- size_plot_data %>%
-  group_by(size_bucket) %>%
+# Panel B: Scatter plot (Risk vs Return) - Replaces raincloud for diversity
+# Calculate per-company metrics
+firm_risk_return <- monthly_returns %>%
+  filter(size_bucket %in% c("Small", "Large"), !is.na(ret_monthly)) %>%
+  group_by(symbol, size_bucket) %>%
   summarise(
     mean_return = mean(ret_monthly, na.rm = TRUE),
-    se = sd(ret_monthly, na.rm = TRUE) / sqrt(n()),
-    ci_lower = mean_return - 1.96 * se,
-    ci_upper = mean_return + 1.96 * se,
+    volatility = sd(ret_monthly, na.rm = TRUE) * sqrt(12),  # Annualized
     n_obs = n(),
     .groups = "drop"
-  )
+  ) %>%
+  filter(n_obs >= 12)  # At least 12 months
 
-p_size_ci <- ggplot(size_ci, aes(x = size_bucket, y = mean_return, color = size_bucket)) +
-  geom_point(size = 4) +
-  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.12, linewidth = 1) +
-  geom_text(aes(label = paste0("n = ", scales::comma(n_obs))), nudge_y = 0.004, size = 3.6) +
+p_scatter <- ggplot(firm_risk_return, 
+                    aes(x = volatility, y = mean_return, color = size_bucket)) +
+  geom_point(alpha = 0.6, size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_color_manual(values = c("Large" = "#377eb8", "Small" = "#e41a1c")) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(
-    title = "Mean returns with 95% confidence intervals",
-    subtitle = "Intervals reflect estimation uncertainty in each group",
-    x = NULL,
-    y = "Mean monthly return"
-  ) +
+  geom_smooth(method = "lm", se = TRUE, alpha = 0.2, linewidth = 1) +
+  scale_color_manual(values = c("Large" = "#d7191c", "Small" = "#2c7bb6")) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_continuous(labels = scales::percent_format()) +
   theme_minimal(base_size = 12) +
-  theme(legend.position = "none")
+  labs(title = "B) Risk-Return Scatter: Small vs Large Caps",
+       subtitle = "Each point = one company; line = fitted relationship",
+       x = "Annualized Volatility (Risk)", y = "Mean Monthly Return",
+       color = "Size Bucket") +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "bottom")
 
-# Combine into one hypothesis figure
-p_size_dist + p_size_ci
+# Combine panels
+p_means + p_scatter +
+  plot_annotation(
+    title = "Wilcoxon-Test 1: Small-Cap vs Large-Cap Monthly Returns",
+    subtitle = sprintf("p-value = %.4f | Cohen's d = %.3f", 
+                      w_test_size$p.value, cohens_d),
+    theme = theme(plot.title = element_text(size = 16, face = "bold"))
+  )
 ```
 
 
-## Hypothesis 2: Does Zug Outperform Other Cantons?
+## wilcoxon-test~2~: Assessment of the Zug Theory
 
 *To assess whether firms located in the low-tax canton of Zug enjoy systematically higher returns*, we compare Zug-based companies against all other SPI constituents using a Wilcoxon rank-sum test.
 
@@ -3251,7 +3260,7 @@ This is a **two-sample, one-sided, unpaired Wilcoxon test** because:
 - Testing for directional difference (Zug > Other)
 - Different companies in each group
 
-```{r wilcoxon-test-zug-premium, echo=FALSE, eval=FALSE}
+```{r wilcoxon-test-zug-premium, echo=TRUE, eval=FALSE}
 # ============================================================================
 # WILCOXON-TEST 2: ZUG VS OTHER CANTONS
 # ============================================================================
@@ -3333,77 +3342,85 @@ cat("\nTop 3 sectors in Other Cantons:\n")
 print(sector_composition_zug %>% filter(canton_group == "Other Cantons") %>% head(3))
 ```
 
-**Interpretation:**
+**Interpretation:** *(To be completed with actual data)*
 
-- A low p-value supports an unconditional Zug premium, but this is not yet a causal location effect.
-- Because Zug has relatively few firms, estimates are less stable and should be read with caution.
-- The decisive check is the regression with sector and size controls in the next section. If the Zug coefficient weakens, the premium is likely composition-driven.
+Key considerations:
+1. **One-sided test**: We're only interested if Zug is BETTER, not just different
+2. **Confounding**: If Zug has higher proportion of high-return sectors (e.g., Banks), the effect might be sectoral, not locational
+3. **Sample size**: Zug sample is much smaller than "Other". Check if sufficient observations for reliable estimate.
+4. **Economic significance**: Even if statistically significant, is difference large enough to justify Zug-focused strategy?
+
+> **Sample Size Limitation**
+> The number of Zug-based firms in the SPI is relatively small. The results should therefore be interpreted cautiously, as any apparent “Zug premium” may reflect sample variation rather than a true effect.
+
+To test H2 more conclusively, we require regressions with sector controls (see next section).
 
 ### Visualization: Zug vs Other Cantons Comparison
 
-```{r wilcoxon-test-2-viz, echo=FALSE, eval=FALSE, fig.width=14, fig.height=6, fig.cap="Figure 10: Zug Advantage Hypothesis Test - Distribution and canton benchmark"}
+```{r wilcoxon-test-2-viz, echo=TRUE, eval=FALSE, fig.width=14, fig.height=6, fig.cap="Figure 10: Zug Advantage Hypothesis Test"}
 # ============================================================================
-# VISUALIZATION FOR HYPOTHESIS 2
+# VISUALIZATION FOR WILCOXON-TEST 2
 # ============================================================================
 
-# Distribution plot: better for comparing shape and median than histogram facets
-zug_labels <- zug_comparison %>%
-  group_by(canton_group) %>%
-  summarise(n_obs = n(), .groups = "drop") %>%
-  mutate(label = paste0(canton_group, "\n(n = ", scales::comma(n_obs), ")"))
-
-p_zug_dist <- ggplot(zug_comparison, aes(x = canton_group, y = ret_monthly, fill = canton_group)) +
-  geom_violin(trim = FALSE, alpha = 0.35, color = NA) +
-  geom_boxplot(width = 0.2, outlier.alpha = 0.2) +
-  stat_summary(fun = median, geom = "point", size = 2.8, color = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_x_discrete(labels = setNames(zug_labels$label, zug_labels$canton_group)) +
-  scale_fill_manual(values = c("Zug" = "#e41a1c", "Other Cantons" = "#377eb8")) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(
-    title = "Zug vs other cantons: distribution comparison",
-    subtitle = "Boxplots and medians make central tendency and spread easy to compare",
-    x = NULL,
-    y = "Monthly return"
+# Panel A: Histogram (Zug vs Other) - Replaces violin for diversity
+p_zug_hist <- ggplot(zug_comparison, 
+                   aes(x = ret_monthly, fill = canton_group)) +
+  geom_histogram(bins = 40, alpha = 0.6, position = "identity", color = "white") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  facet_wrap(~canton_group, ncol = 1, scales = "free_y") +
+  scale_fill_manual(
+    values = c("Zug" = "#e41a1c", "Other Cantons" = "#377eb8")
   ) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(-0.3, 0.3)) +
   theme_minimal(base_size = 12) +
-  theme(legend.position = "none")
+  labs(title = "A) Return Distribution: Zug vs Other Cantons",
+       subtitle = "Histogram showing frequency of monthly returns",
+       x = "Monthly Return", y = "Frequency") +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none",
+        panel.grid.minor = element_blank())
 
-# Benchmark panel: rank cantons and highlight Zug clearly
+# Panel B: Lollipop chart of mean returns by canton (highlight Zug)
 canton_means <- monthly_returns %>%
   filter(!is.na(canton), !is.na(ret_monthly)) %>%
   group_by(canton) %>%
   summarise(
-    mean_return = mean(ret_monthly, na.rm = TRUE),
     n_obs = n(),
-    se = sd(ret_monthly, na.rm = TRUE) / sqrt(n_obs),
+    mean_return = mean(ret_monthly),
+    se = sd(ret_monthly) / sqrt(n()),
     .groups = "drop"
   ) %>%
   mutate(is_zug = canton == "Zug") %>%
   arrange(desc(mean_return))
 
-p_zug_rank <- ggplot(canton_means, aes(x = reorder(canton, mean_return), y = mean_return, color = is_zug)) +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = mean_return - 1.96 * se, ymax = mean_return + 1.96 * se), width = 0.15, alpha = 0.7) +
+p_lollipop <- ggplot(canton_means, 
+                    aes(x = reorder(canton, mean_return), y = mean_return, color = is_zug)) +
+  geom_segment(aes(x = canton, xend = canton, y = 0, yend = mean_return), linewidth = 1) +
+  geom_point(size = 5, alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean_return - 1.96*se, ymax = mean_return + 1.96*se),
+               width = 0.2, alpha = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   coord_flip() +
-  scale_color_manual(values = c("FALSE" = "gray45", "TRUE" = "#e41a1c"), labels = c("FALSE" = "Other", "TRUE" = "Zug")) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.05)) +
-  labs(
-    title = "Canton benchmark with 95% confidence intervals",
-    subtitle = "Zug highlighted in red for direct ranking context",
-    x = NULL,
-    y = "Mean monthly return",
-    color = NULL
+  scale_color_manual(
+    values = c("FALSE" = "#377eb8", "TRUE" = "#e41a1c"),
+    labels = c("FALSE" = "Other Cantons", "TRUE" = "Zug"),
+    name = NULL
   ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.05)) +
   theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom", panel.grid.major.y = element_blank())
+  labs(title = "B) Mean Monthly Return by Canton",
+       subtitle = "Error bars show ±95% confidence intervals",
+       x = NULL, y = "Mean Monthly Return") +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "bottom",
+        panel.grid.major.y = element_blank())
 
-p_zug_dist + p_zug_rank +
+# Combine panels
+p_zug_hist + p_lollipop +
   plot_annotation(
-    title = "Hypothesis 2: Is Zug really different?",
-    subtitle = sprintf("Wilcoxon one-sided p-value = %.4f", w_test_zug$p.value),
-    theme = theme(plot.title = element_text(face = "bold", size = 16))
+    title = "Wilcoxon-Test 2: Zug Canton Performance Analysis",
+    subtitle = sprintf("p-value (one-sided) = %.4f", w_test_zug$p.value),
+    theme = theme(plot.title = element_text(size = 16, face = "bold"))
   )
 ```
 
@@ -3430,7 +3447,7 @@ Where:
 - Interaction terms test if certain sectors perform differently in specific cantons
 - R² indicates how much return variation is explained by geography + industry
 
-```{r linear-regression, echo=FALSE, eval=FALSE}
+```{r linear-regression, echo=TRUE, eval=FALSE}
 # ============================================================================
 # LINEAR REGRESSION: RETURN DRIVERS
 # ============================================================================
@@ -3571,7 +3588,7 @@ Key insights from regression:
 
 ### Regression Diagnostics
 
-```{r regression-diagnostics, echo=FALSE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure 11: Linear Regression Diagnostics"}
+```{r regression-diagnostics, echo=TRUE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure 11: Linear Regression Diagnostics"}
 # ============================================================================
 # REGRESSION DIAGNOSTIC PLOTS
 # ============================================================================
@@ -3670,7 +3687,7 @@ p_actual_pred <- ggplot(model_diagnostics, aes(x = .fitted, y = ret_monthly)) +
 
 ### Model Limitations
 
-```{r model-limitations, echo=FALSE, eval=FALSE}
+```{r model-limitations, echo=TRUE, eval=FALSE}
 cat("=== LINEAR REGRESSION MODEL LIMITATIONS ===\n\n")
 
 cat("1. LOW EXPLANATORY POWER:\n")
@@ -3721,7 +3738,7 @@ cat("   - Perform robustness checks (subperiod analysis, outlier removal)\n")
 
 ## Summary of Hypothesis Tests
 
-```{r conclusions-summary, echo=FALSE, eval=FALSE}
+```{r conclusions-summary, echo=TRUE, eval=FALSE}
 cat("=== HYPOTHESIS TESTING SUMMARY ===\n\n")
 
 cat("H1: SMALL-CAP PREMIUM\n")
@@ -3775,7 +3792,7 @@ cat("  - Canton-sector matrix shows sparse structure (many zero cells)\n")
 
 ## Investment Recommendations
 
-```{r investment-recommendations, echo=FALSE, eval=FALSE}
+```{r investment-recommendations, echo=TRUE, eval=FALSE}
 cat("=== INVESTMENT RECOMMENDATIONS FOR CLIENT ===\n\n")
 
 cat("1. SMALL-CAP STRATEGY CONSIDERATIONS:\n")
@@ -3843,7 +3860,7 @@ cat("   → Data sources: Company filings, Swiss trade registries, patent databa
 
 ## Final Risk Map: Volatility and Concentration
 
-```{r final-risk-map, echo=FALSE, eval=FALSE, fig.width=14, fig.height=6, fig.cap="Figure 12: Final Risk Assessment - Volatility and Concentration"}
+```{r final-risk-map, echo=TRUE, eval=FALSE, fig.width=14, fig.height=6, fig.cap="Figure 12: Final Risk Assessment - Volatility and Concentration"}
 # ============================================================================
 # FINAL RISK ASSESSMENT VISUALIZATION
 # ============================================================================
@@ -3943,10 +3960,52 @@ Generative AI is a powerful productivity tool for routine coding tasks and initi
 
 ## Session Information
 
-```{r session-info, echo=FALSE}
+```{r session-info, echo=TRUE}
 sessionInfo()
 ```
 
 
+<style>
+.collapsible {
+  background-color: #777;
+  color: white;
+  cursor: pointer;
+  padding: 10px;
+  width: 100%;
+  border: none;
+  text-align: left;
+  outline: none;
+  font-size: 15px;
+}
+
+.active, .collapsible:hover {
+  background-color: #555;
+}
+
+.content {
+  padding: 0 18px;
+  display: none;
+  overflow: hidden;
+  background-color: #f1f1f1;
+}
+</style>
+
+
+<script>
+var coll = document.getElementsByClassName("collapsible");
+var i;
+
+for (i = 0; i < coll.length; i++) {
+  coll[i].addEventListener("click", function() {
+    this.classList.toggle("active");
+    var content = this.nextElementSibling;
+    if (content.style.display === "block") {
+      content.style.display = "none";
+    } else {
+      content.style.display = "block";
+    }
+  });
+}
+</script>
 
 *End of Report*
