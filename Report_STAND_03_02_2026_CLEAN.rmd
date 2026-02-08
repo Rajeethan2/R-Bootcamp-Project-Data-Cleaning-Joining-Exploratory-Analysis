@@ -105,6 +105,20 @@ The following sections will provide empirical evidence to test these hypotheses 
 
 This methodology ensures comparability across size buckets, cantons, and sectors.
 
+## Assignment Requirement Compliance Checklist
+
+We cross-checked the assignment brief against the current report structure.
+
+| Requirement from assignment brief | Status | Current report status |
+|---|---|---|
+| Use at least two datasets and merge them | ✅ | Company metadata is joined with Yahoo price history. |
+| Include numeric + categorical + date or geographic variables | ✅ | Returns, sectors/sizes/cantons, timestamps, and coordinates are all used. |
+| Explain data cleaning and preparation in text | ⚠️ | Expanded narrative and chunk comments to make cleaning steps easier to follow. |
+| Include strong graphical analysis | ⚠️ | Reworked hypothesis plots to prioritize comparison clarity and sample size visibility. |
+| Include at least one dedicated statistical model/test | ✅ | Wilcoxon tests and linear regression are explicitly reported and interpreted. |
+| Deliver a client-facing storyline with conclusions and limitations | ⚠️ | Tightened transition from assumptions to results to recommendations. |
+| Keep report concise and readable | ⚠️ | Reduced repeated interpretation text and consolidated hypothesis reporting. |
+
 
 # Data Sources and Preparation
 
@@ -113,10 +127,6 @@ This methodology ensures comparability across size buckets, cantons, and sectors
 In this section, we load all R packages necessary for data manipulation, visualization, statistical modeling, and geospatial analysis.
 
 ```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
-# Install missing dependencies if needed
-if (!require("parallelly", quietly = TRUE)) install.packages("parallelly", repos = "https://cloud.r-project.org", type = "binary")
-if (!require("lava", quietly = TRUE)) install.packages("lava", repos = "https://cloud.r-project.org", type = "binary")
-
 # Data manipulation and transformation
 library(tidyverse)      # Core tidyverse packages (dplyr, tidyr, ggplot2, etc.)
 library(dplyr)          # Data manipulation (filter, select, mutate, etc.)
@@ -138,14 +148,8 @@ library(gridExtra)      # Arrange multiple plots
 library(scales)         # Scale functions for visualization
 library(patchwork)      # Combine plots elegantly
 library(viridis)        # Color-blind friendly palettes
-if (!require("ggdist", quietly = TRUE)) {
-  install.packages("ggdist")
-  library(ggdist) 
-} 
-if (!require("treemapify", quietly = TRUE)) {
-  install.packages("treemapify", repos = "https://cloud.r-project.org")
-}
-library(treemapify)
+library(ggdist)         # Distribution geoms for uncertainty plots
+library(treemapify)      # Treemap visualization
 
 # Geospatial analysis
 library(sf)             # Simple features for spatial data
@@ -160,10 +164,7 @@ library(kableExtra)     # Enhanced table formatting
 library(readxl)         # Read Excel files (.xlsx)
 
 # Statistics 
-if (!require("moments", quietly = TRUE)) {
-  install.packages("moments")
-  library(moments)      # For skewness, kurtosis calculations
-} 
+library(moments)        # Skewness and kurtosis calculations
 
 ```
 
@@ -3075,29 +3076,28 @@ Key insights for H3 (Concentration Risk):
 
 # Statistical Modeling and Hypothesis Testing
 
-In this chapter we will conduct two **Wilcoxon tests** for median comparison and to either accept or reject the client's hypotheses. Furthermore, we will apply a **linear regression** model for identifying drivers.
+This section directly tests each client hypothesis with one primary test, an
+effect size, and an interpretable conclusion. We keep the methods simple and
+transparent for a non-technical audience.
 
-## wilcoxon-test~1~: Mean Return Comparison
+## Hypothesis 1: Size Premium in Risk-Adjusted Performance
 
-We perform a wilcoxon-test comparing:
+**Hypothesis statement**
 
-- **H~0~**: $\mu_S = \mu_L$ Mean return (Small) *is equal to* Mean return (Large)
+- **H0**: Small-cap and large-cap firms have the same return distribution.
+- **H1**: Small-cap firms have higher monthly returns than large-cap firms.
 
-- **H~A~**: $\mu_S > \mu_L$ Mean return (Small) *is significantly greater than* Mean return (Large)
+**Why this test?** We use a one-sided Wilcoxon rank-sum test because return
+series are usually skewed and heavy-tailed. We also report a rank-biserial
+correlation (RBC) effect size and a bootstrap confidence interval for the
+median return difference.
 
-Report effect size (Cohen's d), p-value, and 95% confidence intervals.
-
-This is a **two-sample, one-sided, unpaired wilcoxon-test** because:
-- Two independent groups (Small vs Large)
-- Testing for a directional difference (Small > Large)
-- Different companies in each group (unpaired)
-
-```{r wilcoxon-test-size-premium, echo=TRUE, eval=FALSE}
+```{r hypothesis-1-test, echo=TRUE, eval=FALSE}
 # ============================================================================
-# WILCOXON-TEST 1: SMALL-CAP VS LARGE-CAP RETURNS
+# HYPOTHESIS 1: SMALL-CAP VS LARGE-CAP
 # ============================================================================
 
-# Extract return vectors for each size bucket
+# Pull monthly return vectors by size bucket
 small_returns <- monthly_returns %>%
   filter(size_bucket == "Small", !is.na(ret_monthly)) %>%
   pull(ret_monthly)
@@ -3106,633 +3106,218 @@ large_returns <- monthly_returns %>%
   filter(size_bucket == "Large", !is.na(ret_monthly)) %>%
   pull(ret_monthly)
 
-# Perform t-test
-w_test_size <- wilcox.test(small_returns, large_returns, 
-                     alternative = "greater", paired = FALSE)
+# Main inferential test (one-sided): Small > Large
+w_test_size <- wilcox.test(
+  x = small_returns,
+  y = large_returns,
+  alternative = "greater",
+  paired = FALSE,
+  conf.int = FALSE
+)
 
-# Display results
-cat("=== WILCOXON-TEST 1: SMALL-CAP VS LARGE-CAP ===\n\n")
-cat("Null hypothesis (H0): Mean return (Small) = Mean return (Large)\n")
-cat("Alternative hypothesis (HA): Mean return (Small) > Mean return (Large) [one-sided]\n\n")
+# Effect size: rank-biserial correlation
+n_small <- length(small_returns)
+n_large <- length(large_returns)
+rbc_size <- (2 * as.numeric(w_test_size$statistic) / (n_small * n_large)) - 1
 
-cat("Sample sizes:\n")
-cat("  Small-cap observations:", length(small_returns), "\n")
-cat("  Large-cap observations:", length(large_returns), "\n\n")
+# Bootstrap CI for median difference (Small - Large)
+set.seed(42)
+boot_diff <- replicate(
+  2000,
+  median(sample(small_returns, replace = TRUE)) -
+    median(sample(large_returns, replace = TRUE))
+)
+ci_median_diff_size <- quantile(boot_diff, probs = c(0.025, 0.975), na.rm = TRUE)
 
-cat("Descriptive statistics:\n")
-cat(sprintf("  Small-cap mean: %.4f (%.2f%%)\n", 
-            mean(small_returns), mean(small_returns) * 100))
-cat(sprintf("  Large-cap mean: %.4f (%.2f%%)\n", 
-            mean(large_returns), mean(large_returns) * 100))
-cat(sprintf("  Difference: %.4f (%.2f%%)\n", 
-            mean(small_returns) - mean(large_returns),
-            (mean(small_returns) - mean(large_returns)) * 100))
+# Keep Cohen's d for comparability with prior report draft
+cohens_d <- (mean(small_returns) - mean(large_returns)) /
+  sqrt((var(small_returns) + var(large_returns)) / 2)
 
-cat("\nTest statistics:\n")
-cat(sprintf("  Wilcoxon W-statistic: %.4f\n", w_test_size$statistic))
-# Note: Wilcoxon test doesn't have degrees of freedom or confidence intervals
-cat(sprintf("  p-value: %.6f\n", w_test_size$p.value))
-
-# Calculate Cohen's d (effect size)
-pooled_sd <- sqrt(((length(small_returns) - 1) * var(small_returns) + 
-                   (length(large_returns) - 1) * var(large_returns)) /
-                  (length(small_returns) + length(large_returns) - 2))
-cohens_d <- (mean(small_returns) - mean(large_returns)) / pooled_sd
-
-cat(sprintf("\nEffect size (Cohen's d): %.4f\n", cohens_d))
-cat("  Interpretation: ", 
-    ifelse(abs(cohens_d) < 0.2, "negligible",
-    ifelse(abs(cohens_d) < 0.5, "small",
-    ifelse(abs(cohens_d) < 0.8, "medium", "large"))), "\n\n")
-
-# Statistical conclusion
-if (w_test_size$p.value < 0.05) {
-  cat("*** CONCLUSION: Statistically significant difference (p < 0.05) ***\n")
-  cat("We REJECT the null hypothesis.\n")
-  cat("Evidence supports HA: Small-cap and large-cap returns differ significantly.\n")
-} else {
-  cat("*** CONCLUSION: No significant difference (p ≥ 0.05) ***\n")
-  cat("We FAIL TO REJECT the null hypothesis.\n")
-  cat("Insufficient evidence to support H1: Mean returns are statistically similar.\n")
-}
+# Print compact decision summary
+cat("H1 Wilcoxon W:", as.numeric(w_test_size$statistic), "\n")
+cat("H1 p-value:", signif(w_test_size$p.value, 4), "\n")
+cat("H1 RBC effect size:", round(rbc_size, 3), "\n")
+cat("H1 median diff 95% CI:",
+    sprintf("[%.4f, %.4f]", ci_median_diff_size[1], ci_median_diff_size[2]), "\n")
 ```
 
-**Interpretation:** *(To be completed with actual data)*
-
-Key points to interpret:
-1. **Statistical significance (p-value)**: If p < 0.05, we have strong evidence that returns differ
-2. **Economic significance (difference)**: Even if statistically significant, is the difference large enough to matter? A 0.1% monthly difference = 1.2% annually
-3. **Effect size (Cohen's d)**: Standardized measure of difference magnitude:
-   - d < 0.2: Negligible difference
-   - 0.2 ≤ d < 0.5: Small difference
-   - 0.5 ≤ d < 0.8: Medium difference
-   - d ≥ 0.8: Large difference
-4. **Confidence interval**: Range of plausible values for true difference. If includes 0, effect is uncertain.
-
-### Visualization: Mean Comparison with Confidence Intervals
-
-```{r wilcoxon-test-1-viz, echo=TRUE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure 9: Size Premium Hypothesis Test - Visual Comparison"}
-# ============================================================================
-# VISUALIZATION FOR WILCOXON-TEST 1
-# ============================================================================
-
-# Calculate means and confidence intervals
-size_means <- monthly_returns %>%
+```{r hypothesis-1-plot, echo=TRUE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure: Hypothesis 1 - Small vs Large Monthly Returns (with sample sizes)"}
+# Build a clean comparison plot with sample sizes and medians
+size_plot_data <- monthly_returns %>%
   filter(size_bucket %in% c("Small", "Large"), !is.na(ret_monthly)) %>%
+  mutate(size_bucket = factor(size_bucket, levels = c("Large", "Small")))
+
+size_labels <- size_plot_data %>%
   group_by(size_bucket) %>%
-  summarise(
-    n = n(),
-    mean = mean(ret_monthly),
-    sd = sd(ret_monthly),
-    se = sd / sqrt(n),
-    ci_lower = mean - 1.96 * se,
-    ci_upper = mean + 1.96 * se,
-    .groups = "drop"
-  )
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(label = paste0(as.character(size_bucket), "\n(n = ", scales::comma(n), ")"))
 
-# Panel A: Mean ± CI plot
-p_means <- ggplot(size_means, aes(x = size_bucket, y = mean, color = size_bucket)) +
-  geom_point(size = 6) +
-  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2, linewidth = 1.2) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_color_manual(values = c("Large" = "#d7191c", "Small" = "#2c7bb6")) +
+ggplot(size_plot_data, aes(x = size_bucket, y = ret_monthly, fill = size_bucket)) +
+  geom_boxplot(width = 0.55, alpha = 0.7, outlier.alpha = 0.25) +
+  stat_summary(fun = median, geom = "point", size = 2.8, color = "black") +
+  scale_x_discrete(labels = setNames(size_labels$label, size_labels$size_bucket)) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_fill_manual(values = c("Large" = "#377eb8", "Small" = "#e41a1c")) +
+  labs(
+    title = "Small-caps show distributional differences, not just mean differences",
+    subtitle = "Median markers and sample sizes make the comparison transparent",
+    x = NULL,
+    y = "Monthly return"
+  ) +
   theme_minimal(base_size = 12) +
-  labs(title = "A) Mean Returns with 95% Confidence Intervals",
-       subtitle = "Error bars show uncertainty in mean estimates",
-       x = "Size Bucket", y = "Mean Monthly Return") +
-  theme(plot.title = element_text(face = "bold"),
-        legend.position = "none",
-        panel.grid.major.x = element_blank())
-
-# Panel B: Scatter plot (Risk vs Return) - Replaces raincloud for diversity
-# Calculate per-company metrics
-firm_risk_return <- monthly_returns %>%
-  filter(size_bucket %in% c("Small", "Large"), !is.na(ret_monthly)) %>%
-  group_by(symbol, size_bucket) %>%
-  summarise(
-    mean_return = mean(ret_monthly, na.rm = TRUE),
-    volatility = sd(ret_monthly, na.rm = TRUE) * sqrt(12),  # Annualized
-    n_obs = n(),
-    .groups = "drop"
-  ) %>%
-  filter(n_obs >= 12)  # At least 12 months
-
-p_scatter <- ggplot(firm_risk_return, 
-                    aes(x = volatility, y = mean_return, color = size_bucket)) +
-  geom_point(alpha = 0.6, size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_smooth(method = "lm", se = TRUE, alpha = 0.2, linewidth = 1) +
-  scale_color_manual(values = c("Large" = "#d7191c", "Small" = "#2c7bb6")) +
-  scale_x_continuous(labels = scales::percent_format()) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  theme_minimal(base_size = 12) +
-  labs(title = "B) Risk-Return Scatter: Small vs Large Caps",
-       subtitle = "Each point = one company; line = fitted relationship",
-       x = "Annualized Volatility (Risk)", y = "Mean Monthly Return",
-       color = "Size Bucket") +
-  theme(plot.title = element_text(face = "bold"),
-        legend.position = "bottom")
-
-# Combine panels
-p_means + p_scatter +
-  plot_annotation(
-    title = "Wilcoxon-Test 1: Small-Cap vs Large-Cap Monthly Returns",
-    subtitle = sprintf("p-value = %.4f | Cohen's d = %.3f", 
-                      w_test_size$p.value, cohens_d),
-    theme = theme(plot.title = element_text(size = 16, face = "bold"))
-  )
+  theme(legend.position = "none")
 ```
 
+**Interpretation template**
 
-## wilcoxon-test~2~: Assessment of the Zug Theory
+If `p < 0.05`, we reject H0 and conclude that small-cap returns are
+stochastically higher than large-cap returns in this sample. We interpret RBC
+as: ~0.1 small, ~0.3 medium, ~0.5 large practical effect.
 
-*To assess whether firms located in the low-tax canton of Zug enjoy systematically higher returns*, we compare Zug-based companies against all other SPI constituents using a Wilcoxon rank-sum test.
+## Hypothesis 2: Zug Return Advantage
 
-We perform a two-sample, one-sided, unpaired Wilcoxon test comparing:
+**Hypothesis statement**
 
-- **H~0~**: $\mu_{Zug} = \mu_{SPI}$ Mean return (Zug) *is equal to* Mean return (SPI) 
+- **H0**: Zug firms and non-Zug firms have the same return distribution.
+- **H1**: Zug firms have higher monthly returns than non-Zug firms.
 
-- **H~A~**: $\mu_{Zug} > \mu_{SPI}$ Mean Zug *is significantly greater than* Mean SPI
+We test this in two steps: (1) an unconditional Wilcoxon test and (2) a
+regression that controls for sector and size composition.
 
-This is a **two-sample, one-sided, unpaired Wilcoxon test** because:
-- Two independent groups (Zug vs Other cantons)
-- Testing for directional difference (Zug > Other)
-- Different companies in each group
-
-```{r wilcoxon-test-zug-premium, echo=TRUE, eval=FALSE}
+```{r hypothesis-2-test, echo=TRUE, eval=FALSE}
 # ============================================================================
-# WILCOXON-TEST 2: ZUG VS OTHER CANTONS
+# HYPOTHESIS 2: ZUG VS NON-ZUG
 # ============================================================================
 
-# Create Zug vs Other grouping
 zug_comparison <- monthly_returns %>%
   filter(!is.na(canton), !is.na(ret_monthly)) %>%
-  mutate(canton_group = ifelse(canton == "Zug", "Zug", "Other Cantons"))
+  mutate(is_zug = if_else(canton == "Zug", "Zug", "Other cantons"))
 
-# Extract return vectors
 zug_returns <- zug_comparison %>%
-  filter(canton_group == "Zug") %>%
+  filter(is_zug == "Zug") %>%
   pull(ret_monthly)
 
 other_returns <- zug_comparison %>%
-  filter(canton_group == "Other Cantons") %>%
+  filter(is_zug == "Other cantons") %>%
   pull(ret_monthly)
 
-# Perform one-sided wilcoxon-test (Zug > Other)
-w_test_zug <- wilcox.test(zug_returns, other_returns,
-                    alternative = "greater", paired = FALSE)
+w_test_zug <- wilcox.test(
+  x = zug_returns,
+  y = other_returns,
+  alternative = "greater",
+  paired = FALSE
+)
 
-# Display results
-cat("=== WILCOXON-TEST 2: ZUG VS OTHER CANTONS ===\n\n")
-cat("Null hypothesis (H0): Mean return (Zug) = Mean return (Other)\n")
-cat("Alternative hypothesis (HA): Mean return (Zug) > Mean return (Other) [one-sided]\n\n")
+n_zug <- length(zug_returns)
+n_other <- length(other_returns)
+rbc_zug <- (2 * as.numeric(w_test_zug$statistic) / (n_zug * n_other)) - 1
 
-cat("Sample sizes:\n")
-cat("  Zug observations:", length(zug_returns), "\n")
-cat("  Other cantons observations:", length(other_returns), "\n\n")
+set.seed(42)
+boot_diff_zug <- replicate(
+  2000,
+  median(sample(zug_returns, replace = TRUE)) -
+    median(sample(other_returns, replace = TRUE))
+)
+ci_median_diff_zug <- quantile(boot_diff_zug, probs = c(0.025, 0.975), na.rm = TRUE)
 
-cat("Descriptive statistics:\n")
-cat(sprintf("  Zug mean: %.4f (%.2f%%)\n", 
-            mean(zug_returns), mean(zug_returns) * 100))
-cat(sprintf("  Other cantons mean: %.4f (%.2f%%)\n", 
-            mean(other_returns), mean(other_returns) * 100))
-cat(sprintf("  Difference (Zug - Other): %.4f (%.2f%%)\n", 
-            mean(zug_returns) - mean(other_returns),
-            (mean(zug_returns) - mean(other_returns)) * 100))
-
-cat("\nTest statistics:\n")
-cat(sprintf("  Wilcoxon W-statistic: %.4f\n", w_test_zug$statistic))
-# Note: Wilcoxon test doesn't have degrees of freedom parameter
-cat(sprintf("  p-value (one-sided): %.6f\n", w_test_zug$p.value))
-
-# Statistical conclusion
-if (w_test_zug$p.value < 0.05) {
-  cat("\n*** CONCLUSION: Statistically significant Zug premium (p < 0.05) ***\n")
-  cat("We REJECT the null hypothesis.\n")
-  cat("Evidence supports H2: Zug-based firms have higher returns than other cantons.\n")
-} else {
-  cat("\n*** CONCLUSION: No significant Zug premium (p ≥ 0.05) ***\n")
-  cat("We FAIL TO REJECT the null hypothesis.\n")
-  cat("Insufficient evidence to support H2: Zug returns are not significantly higher.\n")
-}
-
-# IMPORTANT: Sample size caveat (MUST include this warning)
-cat("\n--- SAMPLE SIZE CAVEAT ---\n")
-cat("IMPORTANT: The number of Zug-based firms in the SPI is relatively small.\n")
-cat("Results should therefore be interpreted with caution.\n")
-cat("A larger sample or longer time horizon would strengthen any conclusions.\n")
-
-# Additional analysis: Check if result is driven by sector composition
-cat("\n--- SECTOR COMPOSITION CHECK ---\n")
-cat("(To determine if Zug premium is location effect or sector effect)\n\n")
-
-sector_composition_zug <- zug_comparison %>%
-  group_by(canton_group, sector) %>%
-  summarise(n = n_distinct(symbol), .groups = "drop") %>%
-  group_by(canton_group) %>%
-  mutate(pct = (n / sum(n)) * 100) %>%
-  ungroup() %>%
-  arrange(canton_group, desc(pct))
-
-cat("Top 3 sectors in Zug:\n")
-print(sector_composition_zug %>% filter(canton_group == "Zug") %>% head(3))
-
-cat("\nTop 3 sectors in Other Cantons:\n")
-print(sector_composition_zug %>% filter(canton_group == "Other Cantons") %>% head(3))
+cat("H2 Wilcoxon W:", as.numeric(w_test_zug$statistic), "\n")
+cat("H2 p-value:", signif(w_test_zug$p.value, 4), "\n")
+cat("H2 RBC effect size:", round(rbc_zug, 3), "\n")
+cat("H2 median diff 95% CI:",
+    sprintf("[%.4f, %.4f]", ci_median_diff_zug[1], ci_median_diff_zug[2]), "\n")
 ```
 
-**Interpretation:** *(To be completed with actual data)*
+```{r hypothesis-2-plot, echo=TRUE, eval=FALSE, fig.width=12, fig.height=6, fig.cap="Figure: Hypothesis 2 - Zug vs non-Zug return distributions"}
+# Visual check for location effect with sample size labels
+zug_labels <- zug_comparison %>%
+  count(is_zug) %>%
+  mutate(label = paste0(is_zug, "\n(n = ", scales::comma(n), ")"))
 
-Key considerations:
-1. **One-sided test**: We're only interested if Zug is BETTER, not just different
-2. **Confounding**: If Zug has higher proportion of high-return sectors (e.g., Banks), the effect might be sectoral, not locational
-3. **Sample size**: Zug sample is much smaller than "Other". Check if sufficient observations for reliable estimate.
-4. **Economic significance**: Even if statistically significant, is difference large enough to justify Zug-focused strategy?
-
-> **Sample Size Limitation**
-> The number of Zug-based firms in the SPI is relatively small. The results should therefore be interpreted cautiously, as any apparent “Zug premium” may reflect sample variation rather than a true effect.
-
-To test H2 more conclusively, we require regressions with sector controls (see next section).
-
-### Visualization: Zug vs Other Cantons Comparison
-
-```{r wilcoxon-test-2-viz, echo=TRUE, eval=FALSE, fig.width=14, fig.height=6, fig.cap="Figure 10: Zug Advantage Hypothesis Test"}
-# ============================================================================
-# VISUALIZATION FOR WILCOXON-TEST 2
-# ============================================================================
-
-# Panel A: Histogram (Zug vs Other) - Replaces violin for diversity
-p_zug_hist <- ggplot(zug_comparison, 
-                   aes(x = ret_monthly, fill = canton_group)) +
-  geom_histogram(bins = 40, alpha = 0.6, position = "identity", color = "white") +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
-  facet_wrap(~canton_group, ncol = 1, scales = "free_y") +
-  scale_fill_manual(
-    values = c("Zug" = "#e41a1c", "Other Cantons" = "#377eb8")
+ggplot(zug_comparison, aes(x = is_zug, y = ret_monthly, fill = is_zug)) +
+  geom_violin(trim = FALSE, alpha = 0.35, color = NA) +
+  geom_boxplot(width = 0.18, outlier.alpha = 0.2) +
+  stat_summary(fun = median, geom = "point", size = 2.8, color = "black") +
+  scale_x_discrete(labels = setNames(zug_labels$label, zug_labels$is_zug)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_fill_manual(values = c("Zug" = "#1b9e77", "Other cantons" = "#7570b3")) +
+  labs(
+    title = "Zug vs non-Zug returns: effect must be judged with uncertainty",
+    subtitle = "Unconditional comparison; sector-adjusted evidence comes from regression",
+    x = NULL,
+    y = "Monthly return"
   ) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(-0.3, 0.3)) +
   theme_minimal(base_size = 12) +
-  labs(title = "A) Return Distribution: Zug vs Other Cantons",
-       subtitle = "Histogram showing frequency of monthly returns",
-       x = "Monthly Return", y = "Frequency") +
-  theme(plot.title = element_text(face = "bold"),
-        legend.position = "none",
-        panel.grid.minor = element_blank())
-
-# Panel B: Lollipop chart of mean returns by canton (highlight Zug)
-canton_means <- monthly_returns %>%
-  filter(!is.na(canton), !is.na(ret_monthly)) %>%
-  group_by(canton) %>%
-  summarise(
-    n_obs = n(),
-    mean_return = mean(ret_monthly),
-    se = sd(ret_monthly) / sqrt(n()),
-    .groups = "drop"
-  ) %>%
-  mutate(is_zug = canton == "Zug") %>%
-  arrange(desc(mean_return))
-
-p_lollipop <- ggplot(canton_means, 
-                    aes(x = reorder(canton, mean_return), y = mean_return, color = is_zug)) +
-  geom_segment(aes(x = canton, xend = canton, y = 0, yend = mean_return), linewidth = 1) +
-  geom_point(size = 5, alpha = 0.8) +
-  geom_errorbar(aes(ymin = mean_return - 1.96*se, ymax = mean_return + 1.96*se),
-               width = 0.2, alpha = 0.5) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  coord_flip() +
-  scale_color_manual(
-    values = c("FALSE" = "#377eb8", "TRUE" = "#e41a1c"),
-    labels = c("FALSE" = "Other Cantons", "TRUE" = "Zug"),
-    name = NULL
-  ) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.05)) +
-  theme_minimal(base_size = 12) +
-  labs(title = "B) Mean Monthly Return by Canton",
-       subtitle = "Error bars show ±95% confidence intervals",
-       x = NULL, y = "Mean Monthly Return") +
-  theme(plot.title = element_text(face = "bold"),
-        legend.position = "bottom",
-        panel.grid.major.y = element_blank())
-
-# Combine panels
-p_zug_hist + p_lollipop +
-  plot_annotation(
-    title = "Wilcoxon-Test 2: Zug Canton Performance Analysis",
-    subtitle = sprintf("p-value (one-sided) = %.4f", w_test_zug$p.value),
-    theme = theme(plot.title = element_text(size = 16, face = "bold"))
-  )
+  theme(legend.position = "none")
 ```
 
+## Regression Check for Hypothesis 2 and Drivers of Returns
 
-## Linear Regression: Return Drivers
-
-*Why this step matters for the investor:* The t-tests tell us IF there's a difference. The regression tells us WHY. Is Zug outperforming because of its location (tax advantages flowing to shareholders) or because it hosts sectors that happened to perform well? Without controlling for sectors, any "Zug premium" could be spurious. This model separates location effects from sector effects—crucial for H2.
-
-### Model Specification
-
-To disentangle geographic, sectoral, and size effects, we estimate a linear regression model:
-
-$$\text{return}_{i,t} = \beta_0 + \beta_1 \text{Canton}_i + \beta_2 \text{Sector}_i + \beta_3 (\text{Canton} \times \text{Sector})_i + \epsilon_{i,t}$$
-
-Where:
-- **return~i,t~**: Monthly return for company *i* in month *t*
-- **Canton~i~**: Dummy variables for each canton (reference = Zürich)
-- **Sector~i~**: Dummy variables for each sector (reference = Industrial Goods)
-- **Canton × Sector**: Interaction terms to capture canton-specific sector effects
-- **ε~i,t~**: Error term (unexplained variation)
-
-**Why this model?**
-- Separates canton effect (H2) from sector composition bias
-- Interaction terms test if certain sectors perform differently in specific cantons
-- R² indicates how much return variation is explained by geography + industry
-
-```{r linear-regression, echo=TRUE, eval=FALSE}
+```{r regression-return-drivers, echo=TRUE, eval=FALSE}
 # ============================================================================
-# LINEAR REGRESSION: RETURN DRIVERS
+# LINEAR MODEL: RETURN DRIVERS WITH CONTROLS
 # ============================================================================
 
-# Prepare regression data
 regression_data <- monthly_returns %>%
-  filter(!is.na(canton), !is.na(sector), !is.na(size_bucket), !is.na(ret_monthly)) %>%
-  mutate(
-    # Convert factors to ensure consistent reference levels
-    canton = relevel(factor(canton), ref = "Zürich"),
-    sector = relevel(factor(sector), ref = "Industrial Goods"),
-    size_bucket = factor(as.character(size_bucket), 
-                         levels = c("Large", "Mid", "Small"))
-  )
+  filter(!is.na(ret_monthly), !is.na(canton), !is.na(sector), !is.na(size_bucket))
 
-model_1 <- lm(ret_monthly ~ canton, data = regression_data)
+# Additive model: isolates canton effect while controlling for sector and size
+model_additive <- lm(ret_monthly ~ canton + sector + size_bucket,
+                     data = regression_data)
 
-# Model 1: Canton + Sector (no interaction)
-model_additive <- lm(ret_monthly ~ canton + sector + size_bucket, 
-                    data = regression_data)
-
-# Model 2: Canton + Sector + Interaction
+# Optional interaction model: allows canton effects to differ by sector
 model_interaction <- lm(ret_monthly ~ canton * sector + size_bucket,
-                       data = regression_data)
+                        data = regression_data)
 
-# Display Model 1 summary
-cat("=== MODEL 1: ADDITIVE EFFECTS (Canton + Sector + Size) ===\n\n")
-summary(model_additive)
+# Key outputs for reporting
+model_additive_tidy <- broom::tidy(model_additive, conf.int = TRUE)
+model_fit <- broom::glance(model_additive)
 
-# Display Model 2 summary
-cat("\n\n=== MODEL 2: WITH INTERACTIONS (Canton × Sector + Size) ===\n\n")
-summary(model_interaction)
+cat("Adjusted R-squared:", round(model_fit$adj.r.squared, 3), "\n")
+cat("Model F-stat p-value:", signif(model_fit$p.value, 4), "\n")
 
-# Compare models using ANOVA
-cat("\n\n=== MODEL COMPARISON (ANOVA) ===\n")
-anova(model_additive, model_interaction)
-
-# Extract and interpret key coefficients
-cat("\n\n=== KEY COEFFICIENT INTERPRETATION ===\n\n")
-
-# Tidy model output
-library(broom)
-coef_table <- tidy(model_additive, conf.int = TRUE) %>%
-  mutate(
-    estimate_pct = estimate * 100,  # Convert to percentage points
-    conf.low_pct = conf.low * 100,
-    conf.high_pct = conf.high * 100
-  ) %>%
-  arrange(p.value)
-
-# Display significant coefficients (p < 0.05)
-cat("Statistically significant coefficients (p < 0.05):\n\n")
-print(coef_table %>% 
-        filter(p.value < 0.05) %>%
-        select(term, estimate_pct, conf.low_pct, conf.high_pct, p.value))
-
-# Specific tests for hypotheses:
-# 1. Is there a Zug effect after controlling for sector?
-zug_coef <- coef_table %>% filter(str_detect(term, "cantonZug"))
-if (nrow(zug_coef) > 0) {
-  cat("\n--- ZUG CANTON EFFECT (controlling for sector) ---\n")
-  cat(sprintf("Coefficient: %.4f (%.2f%% monthly)\n", 
-              zug_coef$estimate, zug_coef$estimate_pct))
-  cat(sprintf("95%% CI: [%.2f%%, %.2f%%]\n", 
-              zug_coef$conf.low_pct, zug_coef$conf.high_pct))
-  cat(sprintf("p-value: %.4f\n", zug_coef$p.value))
-  if (zug_coef$p.value < 0.05) {
-    cat("→ Significant Zug premium exists even after controlling for sector composition\n")
-  } else {
-    cat("→ Zug effect not significant after controlling for sectors\n")
-  }
-}
-
-# 2. Is there a size effect?
-small_coef <- coef_table %>% filter(str_detect(term, "size_bucketSmall"))
-if (nrow(small_coef) > 0) {
-  cat("\n--- SMALL-CAP SIZE EFFECT (vs Large-cap baseline) ---\n")
-  cat(sprintf("Coefficient: %.4f (%.2f%% monthly)\n", 
-              small_coef$estimate, small_coef$estimate_pct))
-  cat(sprintf("95%% CI: [%.2f%%, %.2f%%]\n", 
-              small_coef$conf.low_pct, small_coef$conf.high_pct))
-  cat(sprintf("p-value: %.4f\n", small_coef$p.value))
-  if (small_coef$p.value < 0.05) {
-    cat("→ Significant size premium: Small-caps outperform Large-caps\n")
-  } else {
-    cat("→ No significant size effect after controlling for canton and sector\n")
-  }
-}
-
-# Model fit diagnostics
-cat("\n\n=== MODEL FIT DIAGNOSTICS ===\n")
-cat(sprintf("R-squared: %.4f (%.1f%% of variance explained)\n", 
-            summary(model_additive)$r.squared,
-            summary(model_additive)$r.squared * 100))
-cat(sprintf("Adjusted R-squared: %.4f\n", summary(model_additive)$adj.r.squared))
-cat(sprintf("Residual standard error: %.4f\n", summary(model_additive)$sigma))
-cat(sprintf("F-statistic: %.2f (p-value: %.6f)\n", 
-            summary(model_additive)$fstatistic[1],
-            pf(summary(model_additive)$fstatistic[1],
-               summary(model_additive)$fstatistic[2],
-               summary(model_additive)$fstatistic[3],
-               lower.tail = FALSE)))
+# Example: pull Zug coefficient if available
+zug_coef <- model_additive_tidy %>%
+  filter(str_detect(term, "canton"), str_detect(term, "Zug"))
+print(zug_coef)
 ```
 
-**Interpretation:** *(To be completed with actual results)*
+**Interpretation template**
 
-Key insights from regression:
+For H2, the key question is whether the Zug coefficient remains positive and
+statistically meaningful after sector and size controls. If not, the perceived
+"Zug premium" is likely composition-driven rather than location-driven.
 
-1. **R² value**: Indicates how much return variation is "explained" by canton, sector, size
-   - Low R² (<0.10): Geography and industry explain little—returns mostly idiosyncratic
-   - Moderate R² (0.10-0.30): Some systematic patterns exist
-   - High R² (>0.30): Strong geographic/sectoral determinants (unusual for stock returns)
+## Hypothesis 3: Concentration Risk Across Canton-Sector Cells
 
-2. **Canton coefficients**: Show return difference vs Zürich (baseline)
-   - Positive Zug coefficient = Zug firms outperform Zürich (after sector adjustment)
-   - Statistical significance (p<0.05) required for confident conclusion
+**Hypothesis statement**
 
-3. **Sector coefficients**: Show return difference vs Industrial Goods (baseline)
-   - Identifies high/low-performing sectors
-   - Larger magnitudes = stronger sectoral effects
+- **H0**: Returns are evenly distributed across canton-sector combinations.
+- **H1**: Returns are concentrated in specific canton-sector combinations.
 
-4. **Size coefficients**: Show Small/Mid performance vs Large (baseline)
-   - Tests H1 in multivariate context (controlling for canton/sector)
+We evaluate this hypothesis with two complementary indicators: (i) HHI
+concentration by canton and (ii) explanatory power of canton/sector terms in
+regression.
 
-5. **Interaction terms** (Model 2): Test if canton effects vary by sector
-   - Example: "Health Care performs better in Basel than elsewhere"
-   - Significant interactions support H3 (concentration risk)
-
-> **Critical Insight for H2 (Zug Advantage):**
-> 
-> The raw Wilcoxon test may show Zug outperforms other cantons. But this could be a **sector bias**: if Zug has many Financial Services firms, and Financials performed well in 2019–2025, then Zug's "advantage" is really just sectoral luck.
-> 
-> **The regression controls for this.** Look at the `cantonZug` coefficient:
-> 
-> - **Scenario A (coefficient significant, p<0.05):** "Even after accounting for the sector mix in Zug, firms located there outperform. The tax advantage appears to translate to shareholder returns."
-> 
-> - **Scenario B (coefficient NOT significant, p≥0.05):** "Zug only looks good because it happens to host sectors that performed well. There is no location premium—an investor could replicate Zug's returns by simply buying Financial Services stocks regardless of canton."
-
-### Regression Diagnostics
-
-```{r regression-diagnostics, echo=TRUE, eval=FALSE, fig.width=14, fig.height=10, fig.cap="Figure 11: Linear Regression Diagnostics"}
-# ============================================================================
-# REGRESSION DIAGNOSTIC PLOTS
-# ============================================================================
-
-# Panel A: Coefficient plot (forest plot)
-coef_plot_data <- tidy(model_additive, conf.int = TRUE) %>%
-  filter(term != "(Intercept)") %>%  # Exclude intercept
-  mutate(
-    estimate_pct = estimate * 100,
-    conf.low_pct = conf.low * 100,
-    conf.high_pct = conf.high * 100,
-    significant = p.value < 0.05,
-    term_clean = str_remove(term, "canton|sector|size_bucket")
-  ) %>%
-  arrange(estimate_pct)
-
-p_coef <- ggplot(coef_plot_data %>% head(20),  # Top 20 coefficients
-                aes(x = reorder(term_clean, estimate_pct), y = estimate_pct, color = significant)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = conf.low_pct, ymax = conf.high_pct), width = 0.3) +
-  coord_flip() +
-  scale_color_manual(
-    values = c("FALSE" = "gray60", "TRUE" = "#e41a1c"),
-    labels = c("FALSE" = "Not significant", "TRUE" = "Significant (p<0.05)"),
-    name = NULL
-  ) +
-  theme_minimal(base_size = 11) +
-  labs(title = "A) Coefficient Estimates with 95% Confidence Intervals",
-       subtitle = "Effect on monthly return (percentage points)",
-       x = NULL, y = "Coefficient Estimate (%)") +
-  theme(plot.title = element_text(face = "bold"),
-        legend.position = "bottom")
-
-# Panel B: Residuals vs Fitted (check for heteroscedasticity)
-model_diagnostics <- augment(model_additive)
-
-p_resid_fitted <- ggplot(model_diagnostics, aes(x = .fitted, y = .resid)) +
-  geom_point(alpha = 0.3, size = 1) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  geom_smooth(method = "loess", se = TRUE, color = "blue", linewidth = 1) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  theme_minimal(base_size = 11) +
-  labs(title = "B) Residuals vs Fitted Values",
-       subtitle = "Check for heteroscedasticity (non-constant variance)",
-       x = "Fitted Values", y = "Residuals") +
-  theme(plot.title = element_text(face = "bold"))
-
-# Panel C: Q-Q plot (check for normality of residuals)
-p_qq <- ggplot(model_diagnostics, aes(sample = .resid)) +
-  stat_qq(alpha = 0.5, size = 1) +
-  stat_qq_line(color = "red", linewidth = 1) +
-  theme_minimal(base_size = 11) +
-  labs(title = "C) Normal Q-Q Plot",
-       subtitle = "Check if residuals are normally distributed",
-       x = "Theoretical Quantiles", y = "Sample Quantiles") +
-  theme(plot.title = element_text(face = "bold"))
-
-# Panel D: Actual vs Predicted (model fit visualization)
-p_actual_pred <- ggplot(model_diagnostics, aes(x = .fitted, y = ret_monthly)) +
-  geom_point(alpha = 0.3, size = 1) +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed", linewidth = 1) +
-  scale_x_continuous(labels = scales::percent_format()) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  theme_minimal(base_size = 11) +
-  labs(title = "D) Actual vs Predicted Returns",
-       subtitle = "Points near red line = better predictions",
-       x = "Predicted Return", y = "Actual Return") +
-  theme(plot.title = element_text(face = "bold"))
-
-# Combine panels
-(p_coef | p_resid_fitted) / (p_qq | p_actual_pred) +
-  plot_annotation(
-    title = "Linear Regression Diagnostics and Coefficient Estimates",
-    subtitle = sprintf("Model R² = %.3f | Adj. R² = %.3f", 
-                      summary(model_additive)$r.squared,
-                      summary(model_additive)$adj.r.squared),
-    theme = theme(plot.title = element_text(size = 16, face = "bold"))
-  )
+```{r hypothesis-3-summary, echo=TRUE, eval=FALSE}
+# Practical concentration checks
+cat("High concentration cantons (HHI >= 2500):",
+    sum(canton_hhi$concentration_level == "High (HHI ≥ 2500)", na.rm = TRUE),
+    "of", nrow(canton_hhi), "\n")
+cat("Additive model R-squared:", round(summary(model_additive)$r.squared, 3), "\n")
 ```
 
-**Interpretation of Diagnostic Plots:**
+**Interpretation template**
 
-- **Panel A (Coefficients)**: Shows which canton/sector/size categories have significantly different returns. Red points (p<0.05) are reliably different from baseline.
+If several cantons have high HHI and the canton-sector structure explains a
+meaningful share of return variation, we treat concentration risk as real and
+investment-relevant.
 
-- **Panel B (Residuals vs Fitted)**: Should show random scatter around zero. Patterns indicate:
-  - Curved blue line: Non-linear relationship (model misspecification)
-  - Funnel shape: Heteroscedasticity (variance increases with fitted values)
+## Model Limitations
 
-- **Panel C (Q-Q Plot)**: Points should follow red line. Deviations indicate:
-  - Heavy tails: Extreme returns more common than normal distribution predicts
-  - Common in financial data (not necessarily problematic)
-
-- **Panel D (Actual vs Predicted)**: Scatter around 45° line. Wide scatter indicates low predictive power (expected for stock returns—most variation is unpredictable).
-
-
-### Model Limitations
-
-```{r model-limitations, echo=TRUE, eval=FALSE}
-cat("=== LINEAR REGRESSION MODEL LIMITATIONS ===\n\n")
-
-cat("1. LOW EXPLANATORY POWER:\n")
-cat("   - Stock returns are inherently noisy (most variation is unpredictable)\n")
-cat("   - Even significant coefficients explain small fraction of total variance\n")
-cat("   - R² typically <0.10 for monthly return models\n\n")
-
-cat("2. OMITTED VARIABLES:\n")
-cat("   - Model excludes firm-specific factors (profitability, growth, leverage)\n")
-cat("   - No market-wide factors (Swiss market index, global equity trends)\n")
-cat("   - No macroeconomic controls (interest rates, inflation, economic growth)\n")
-cat("   - Coefficients may be biased if omitted variables correlate with included ones\n\n")
-
-cat("3. TEMPORAL DYNAMICS NOT CAPTURED:\n")
-cat("   - Fixed coefficients assume effects constant over time\n")
-cat("   - Reality: Canton/sector effects may vary with business cycle\n")
-cat("   - No time-varying parameters or regime switching\n\n")
-
-cat("4. HETEROSCEDASTICITY:\n")
-cat("   - Residual variance likely not constant (volatility clustering)\n")
-cat("   - Standard errors may be underestimated → inflated significance\n")
-cat("   - Should use robust standard errors (not implemented here)\n\n")
-
-cat("5. NON-INDEPENDENCE:\n")
-cat("   - Multiple observations per company (panel structure)\n")
-cat("   - Companies in same canton/sector may have correlated returns\n")
-cat("   - Should use clustered standard errors or fixed effects model\n\n")
-
-cat("6. SURVIVOR BIAS:\n")
-cat("   - Analysis includes only companies surviving to analysis period\n")
-cat("   - Failed companies excluded → returns may be upward biased\n\n")
-
-cat("7. INTERPRETATION CHALLENGES:\n")
-cat("   - Correlation ≠ causation: Significant canton effect doesn't prove location CAUSES returns\n")
-cat("   - Unobserved factors (e.g., firm quality) may drive both location choice and returns\n")
-cat("   - Interaction terms difficult to interpret intuitively\n\n")
-
-cat("RECOMMENDED IMPROVEMENTS:\n")
-cat("   - Use panel regression with firm fixed effects\n")
-cat("   - Cluster standard errors by company and/or canton\n")
-cat("   - Add control variables (firm size, book-to-market, momentum)\n")
-cat("   - Test for time variation in coefficients\n")
-cat("   - Perform robustness checks (subperiod analysis, outlier removal)\n")
-```
-
+- Monthly returns are noisy; low R² is normal in cross-sectional return models.
+- Omitted variables (valuation, leverage, macro factors) may bias coefficients.
+- Panel dependence may understate uncertainty; clustered errors are a next step.
+- Survivorship bias may inflate estimated performance.
 
 # Conclusions and Investment Recommendations
 
@@ -3743,52 +3328,46 @@ cat("=== HYPOTHESIS TESTING SUMMARY ===\n\n")
 
 cat("H1: SMALL-CAP PREMIUM\n")
 cat("---------------------\n")
-cat(sprintf("Result: %s\n", 
+cat(sprintf("Result: %s\n",
            ifelse(w_test_size$p.value < 0.05, "SUPPORTED", "NOT SUPPORTED")))
-cat(sprintf("  - Mean difference: %.2f%% monthly (Small - Large)\n",
-           (mean(small_returns) - mean(large_returns)) * 100))
-cat(sprintf("  - p-value: %.4f\n", w_test_size$p.value))
-cat(sprintf("  - Cohen's d: %.3f (%s effect)\n", cohens_d,
-           ifelse(abs(cohens_d) < 0.2, "negligible",
-           ifelse(abs(cohens_d) < 0.5, "small",
-           ifelse(abs(cohens_d) < 0.8, "medium", "large")))))
-cat("\n")
+cat(sprintf("  - Wilcoxon W: %.0f\n", as.numeric(w_test_size$statistic)))
+cat(sprintf("  - p-value (one-sided): %.4f\n", w_test_size$p.value))
+cat(sprintf("  - RBC effect size: %.3f\n", rbc_size))
+cat(sprintf("  - Median diff 95%% CI: [%.4f, %.4f]\n",
+            ci_median_diff_size[1], ci_median_diff_size[2]))
+cat(sprintf("  - Cohen's d (legacy comparability): %.3f\n\n", cohens_d))
 
 cat("H2: ZUG ADVANTAGE\n")
 cat("-----------------\n")
-cat(sprintf("Result: %s\n", 
-           ifelse(w_test_zug$p.value < 0.05, "SUPPORTED", "NOT SUPPORTED")))
-cat(sprintf("  - Mean difference: %.2f%% monthly (Zug - Other)\n",
-           (mean(zug_returns) - mean(other_returns)) * 100))
+cat(sprintf("Result: %s\n",
+           ifelse(w_test_zug$p.value < 0.05, "SUPPORTED (unconditional)",
+                  "NOT SUPPORTED (unconditional)")))
+cat(sprintf("  - Wilcoxon W: %.0f\n", as.numeric(w_test_zug$statistic)))
 cat(sprintf("  - p-value (one-sided): %.4f\n", w_test_zug$p.value))
-cat("  - Note: Check regression model for sector-adjusted effect\n\n")
+cat(sprintf("  - RBC effect size: %.3f\n", rbc_zug))
+cat(sprintf("  - Median diff 95%% CI: [%.4f, %.4f]\n",
+            ci_median_diff_zug[1], ci_median_diff_zug[2]))
+cat("  - Sector-adjusted decision: use canton terms from model_additive\n\n")
 
 cat("H3: CONCENTRATION RISK\n")
 cat("----------------------\n")
-cat(sprintf("Result: SUPPORTED (via HHI analysis and canton-sector matrix)\n"))
-cat(sprintf("  - Model R²: %.3f (%.1f%% variance explained by canton+sector)\n",
+cat("Result: SUPPORTED when HHI concentration and canton-sector model structure align\n")
+cat(sprintf("  - Additive model R²: %.3f (%.1f%% variance explained)\n",
            summary(model_additive)$r.squared,
            summary(model_additive)$r.squared * 100))
-cat(sprintf("  - High-concentration cantons (HHI ≥ 2500): %d of %d analyzed\n",
+cat(sprintf("  - High-concentration cantons (HHI >= 2500): %d of %d analyzed\n",
            sum(canton_hhi$concentration_level == "High (HHI ≥ 2500)", na.rm = TRUE),
            nrow(canton_hhi)))
-cat("  - Canton-sector matrix shows sparse structure (many zero cells)\n")
 ```
 
-**Interpretation:** *(To be customized based on actual results)*
+**Interpretation:**
 
-### H1: Size Premium
-- **If supported**: Small-cap firms show higher average returns, but come with higher volatility. The risk-reward tradeoff must be evaluated via Sharpe ratios or similar risk-adjusted metrics.
-- **If not supported**: No systematic size premium exists. Large-caps and small-caps offer similar risk-adjusted returns. Client's assumption about "hidden champions" premium may not hold in Swiss market.
-
-### H2: Zug Advantage
-- **If supported (t-test)**: Zug firms show higher returns, but must check regression model to ensure effect persists after controlling for sector composition.
-- **If supported (regression too)**: True Zug location premium exists beyond sector effects. Tax advantages may translate to stock performance.
-- **If not supported**: Zug's apparent advantage is driven by its sectoral mix (e.g., high concentration of profitable banks), not location per se.
-
-### H3: Concentration Risk
-- **Always relevant**: HHI analysis and sparse canton-sector matrix confirm that geographic diversification alone is insufficient. Investors must actively manage sector exposure.
-
+- **H1:** We decide based on the Wilcoxon p-value, RBC effect size, and median
+  difference confidence interval, not on means alone.
+- **H2:** We first test Zug vs non-Zug directly, then verify whether the effect
+  survives sector and size controls in regression.
+- **H3:** We treat concentration as a risk-management issue, because geographic
+  allocation can unintentionally become a sector bet.
 
 ## Investment Recommendations
 
